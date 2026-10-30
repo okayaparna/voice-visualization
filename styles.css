@@ -247,3 +247,6 @@ select {
 .log .warn { color: var(--danger); }
 
 [hidden] { display: none !important; }
+
+.navlink { font-size: 13px; color: var(--muted); text-decoration: none; margin-left: 6px; }
+.navlink:hover { color: var(--accent); }

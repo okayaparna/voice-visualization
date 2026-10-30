@@ -1,175 +1,161 @@
-# Case study kit: Voice Visualizer
+# Case study kit: Voice Studio
 
 Working material for the "complex product or systems problem" case study.
-Sections marked **[YOU]** need your own words, research and decisions. Don't
-present anything here as research you didn't do.
+Sections marked **[YOU]** need your own words, research and decisions.
+
+> **Framing, kept honest.** Say only what's true about Slingshot. A safe, strong
+> version: *"At Slingshot, Ash's voice experience used ElevenLabs, and the voice
+> visual was a string that moves with speech. Tuning it was guesswork. I designed
+> and built the internal tool I wished we'd had."* Only say the team used it, or
+> that it changed what shipped, if that happened.
 
 ---
 
-## 1. The problem (draft, rewrite in your voice)
+## 1. The problem
 
-Live speech-to-text looks simple: audio goes in, words come out. In practice,
-what the user reads is changing all the time:
+The string is the most visible part of Ash's voice experience. It's how users
+know Ash is listening, thinking or speaking. But how it *feels* depends on a
+system that nobody could see all at once:
 
-- Words appear **before they're final** and get **rewritten** as the service hears more.
-- The service is **sometimes unsure**, but a confident-looking UI hides that.
-- The pipeline **depends on things the user can't see**: mic permission, the right
-  device, a network connection to a remote speech service, a supported language.
-- Every one of those can **fail mid-sentence**.
+- **Real audio is messy.** Whispers, shouting, fan noise, long pauses and fast
+  talkers all hit the same visual. Mockups and motion files only show the ideal case.
+- **The voice API has its own behavior.** Time before audio arrives, word timings,
+  rate limits, running out of credits, timeouts. Each one is a state the string has to show.
+- **Feel lives in numbers.** Tension, damping, gate, attack and release are
+  engineering parameters. Designers can't tweak them, and engineers end up guessing.
+- **Edge cases show up in production** instead of during design.
 
-**The design question:** how do you make an unstable, uncertain stream of speech
-readable and trustworthy, and stay honest when the system fails?
+**The design question:** how do you give a team one place to see, tune and
+stress-test a voice visual against real audio, a real API, and the conditions
+that break it?
 
-**[YOU]** Who is it for? Pick one primary user and say why. For example: someone
-reviewing a conversation afterwards, a person who is hard of hearing following
-live speech, or someone taking notes in a meeting.
-
-**[YOU]** How did the project start? (Flutter prototype with pre-recorded audio,
-then realizing pre-recorded audio hid all the hard parts.) That's an honest and
-strong opening.
+**[YOU]** Who exactly was this for (you, other designers, engineers, a PM)? What
+moment made you want it? A specific bug or review is ideal.
 
 ---
 
 ## 2. Mapping the complexity
 
-### 2a. Session state machine
+### 2a. The pipeline
 
-The core artifact. Every screen state in the app comes from this diagram, and
-the System inspector shows these transitions live.
+```
+ Source                 Signal processing                  The string
+ ───────────────        ─────────────────────────────      ──────────────────────
+ ElevenLabs TTS  ─┐
+ Microphone      ─┼─▶  level ─▶ noise gate ─▶ attack/   ─▶  energy ─▶ spring physics
+ Edge-case script ┘                             release        │      on N points
+                                                               │          │
+ Word timings (ElevenLabs alignment / speech recognition / script) ─▶ "pluck" ─┘
+                                                                          │
+ Session state (idle · listening · thinking · speaking · error) ─▶ color, motion, droop
+```
+
+Every source goes through the same pipeline. A scripted edge case and real
+audio behave identically, so what you tune against a script carries over to live audio.
+
+### 2b. String states
 
 ```mermaid
 stateDiagram-v2
     [*] --> idle
-    idle --> consent: Start
-    idle --> unsupported: browser has no speech API
-    consent --> requesting: Allow microphone
-    consent --> idle: Not now
-    requesting --> listening: permission granted
-    requesting --> blocked: denied / no mic / mic busy
-    listening --> paused: Pause
-    paused --> listening: Resume
-    listening --> reconnecting: network drop
-    reconnecting --> listening: reconnected
-    reconnecting --> blocked: 3 failed retries
-    listening --> blocked: mic unplugged / service error
-    blocked --> requesting: Try again
-    listening --> idle: End session
-    blocked --> idle: End session
+    idle --> thinking: request sent
+    thinking --> speaking: audio arrives
+    thinking --> error: 401 / quota / 429 / timeout / offline
+    speaking --> idle: finished
+    speaking --> listening: user interrupts
+    idle --> listening: mic on
+    listening --> idle: mic off
+    error --> idle: dismiss / next action
 ```
 
-Things to say about it:
-- **`consent` is a state I added on purpose.** The browser's permission prompt
-  gives no context and you only get one clean shot at it. A denied prompt is hard
-  to undo, so the app explains first, then triggers the browser prompt.
-- **`reconnecting` is not an error state.** The session continues and the
-  transcript stays. Only after 3 failed retries (1s, 2s, 4s back-off) does it
-  become `blocked`.
-- **`blocked` always comes with a specific reason and a next step.** No generic
-  "something went wrong".
+How each state looks, and why:
 
-### 2b. Edge-case inventory
-
-| Situation | What the system sees | What the user sees | Scenario to demo it |
-|---|---|---|---|
-| Normal speech | Partial results, then final | Grey words with a cursor, settling into dark text | Happy path |
-| Service changes its mind | Partial text rewritten | Rewritten words flash briefly, then settle | Self-correcting transcript |
-| Mumbled or noisy speech | Final result, low confidence | Dotted underline + "Check this · 46%" tag; threshold adjustable | Low confidence |
-| Network drop mid-sentence | `network` error | Unfinished phrase kept and tagged "Cut off"; amber banner; gap marked in transcript and ribbon | Network drop |
-| Network never recovers | 3 failed retries | Specific explanation, transcript kept, Try again | Network fails for good |
-| Mic unplugged | Audio track `ended` | Phrase kept as "Cut off · mic disconnected"; reconnect prompt | Mic unplugged |
-| Permission denied | `NotAllowedError` | How to fix it in the browser + option to explore with a scenario | Permission denied |
-| Mic on, nothing heard | Low loudness for 6s | Gentle hint to check the mic; session not interrupted | Long silence |
-| No mic found / mic busy | `NotFoundError` / `NotReadableError` | Specific message for each | (live only) |
-| Unsupported browser | No speech API | Explains which browsers work; offers scenarios | (Firefox) |
-| Language not supported | `language-not-supported` | Points to the language setting | (live only) |
-| Service ends its session | `onend` with no error | Nothing: it restarts silently, unfinished phrase saved | (live only) |
-
-### 2c. Data model
-
-What one transcribed phrase carries, and how each field becomes something visible:
-
-| Field | Meaning | Becomes |
+| State | Look | Reason |
 |---|---|---|
-| `text` | The words | Transcript text |
-| `isFinal` | Will the service still change it? | Grey + cursor vs. settled |
-| `revisions` | Times the service rewrote it | Flash on changed words; inspector count |
-| `confidence` | 0–1 from the service; `null` if not reported | Dotted underline + tag below threshold |
-| `t0`, `t1` | When it started and ended | Timestamp; band under the loudness ribbon |
-| `words[].level` | Loudness while each word was spoken | Font weight and opacity of each word |
-| `interrupted` | `network`, `mic-lost`, or a normal stop | "Cut off" tag + ellipsis |
+| Idle | Slow breathing | Alive but not demanding attention |
+| Listening | User's color (sage) | Shows whose turn it is without any text |
+| Thinking | Wave travelling along the string | Shows progress; signals "I heard you" during API delay |
+| Speaking | Ash's color (mauve), plucked on each word | Ties the motion to what's being said |
+| Error | Desaturates, goes slack, sags | Reads as "unavailable", not "broken", and isn't alarming in a mental-health context |
 
-Plus session-level data: loudness samples (20/s), reconnect gaps, and the
-transition log. Export as `.json` from the inspector to show this concretely.
+### 2c. Parameter model
 
-### 2d. Constraints log: what the API forced
+17 parameters in four groups, so they make sense to designers and engineers alike:
 
-You were both the designer and the engineer here, so this is your "working with
-engineering" story: how technical limits shaped design decisions.
+| Group | Parameters | Question they answer |
+|---|---|---|
+| Look | thickness, Ash color, user color, width, swell | What is it? |
+| Shape | points, complexity, loopiness | How expressive is its form? |
+| Motion | idle motion, speed, tension, damping | How does it move on its own? |
+| Response | reactivity, noise gate, attack, release, word pluck | How does it react to voice? |
 
-| Constraint | Design consequence |
+**Handoff:** "Copy as JSON" exports the exact numbers for engineering, and
+presets can be saved and compared. That replaces "make it a bit bouncier" with
+values both sides agree on.
+
+### 2d. Edge-case inventory
+
+| Edge case | What it tests | Parameter that solves it |
+|---|---|---|
+| Whisper | Is quiet speech visible at all? | Noise gate vs. reactivity trade-off |
+| Shouting (clipping) | Does it stay in frame and stay calm? | Amplitude cap, swell, clipping indicator |
+| Long pause mid-sentence | Does it look broken during silence? | Release, idle motion |
+| Fast talker | Do word plucks turn into noise? | Pluck strength, damping |
+| Background hum | Does it twitch with no speech? | Noise gate |
+| User interrupts Ash | Is the turn change clear? | Color handover, state switch |
+| Slow first audio | What does waiting look like? | Thinking state |
+| Invalid key / out of credits / rate limited / timeout / offline | What does failure look like, and what does the user read? | Error state + copy |
+
+### 2e. API integration decisions
+
+| Decision | Why |
 |---|---|
-| Confidence is per **phrase**, not per word | Mark the whole phrase, not individual words. Don't pretend to more precision than the data has |
-| Some engines report confidence `0` meaning "unknown" | Treat 0 as "not reported", never as "0% confident" |
-| No word timings | Loudness per word is approximated by splitting the phrase's audio evenly. Present it as expressive, not exact |
-| Service ends sessions by itself after silence or time limits | Auto-restart, and save the unfinished phrase so it isn't lost |
-| Audio during a network drop is lost, not queued | Say so in the banner and mark the gap; don't imply nothing was said |
-| Audio goes to Google (Chrome) or Apple (Safari) | Disclose it before asking for the mic |
-| Browser permission prompt can't be styled or explained | Add a pre-permission explainer state |
-| Only Chromium browsers and Safari support it | Scenario mode works everywhere, so the experience can still be explored |
+| `/text-to-speech/{voice}/with-timestamps` | Returns per-character timing, so the string can react to actual words, not just loudness |
+| Model choice exposed (Flash vs. Multilingual) | The trade-off between delay and quality is a design decision, so show the delay |
+| Time to audio measured on every request | The thinking state must be designed for real delays, not ideal ones |
+| Responses cached by text + voice + settings | Tuning means replaying the same line many times, and credits cost money |
+| 15s timeout with AbortController | A request that hangs must never leave the UI in "thinking" forever |
+| Error taxonomy (401, quota, 429, 4xx, 5xx, network, decode) | Each failure needs different copy. Each card shows **product copy** (what the user reads) and **team detail** (what engineers need) |
+| API key kept in the browser tab only | Never committed or logged. In production this would sit behind a backend proxy |
+| Not streamed (yet) | Simpler and more reliable for a tuning tool. Streaming would cut time to first audio, so it's the next step |
 
 ---
 
 ## 3. Exploration and discarded directions
 
-**[YOU]** This is where interviewers dig hardest. Use what really happened.
-Prompts to help you remember or try things:
-
-- **Pre-recorded audio (your Flutter version).** What did it show you? What did it
-  hide? This is a real discarded approach.
-- **Showing partial words vs. waiting for finals.** Waiting is calmer but feels
-  laggy; showing them is responsive but jumpy. Current answer: show them in grey,
-  and flash only the words that change. There's a toggle to compare both.
-- **Marking low confidence per word vs. per phrase vs. hiding it.** (See the constraints log.)
-- **What happens to the unfinished phrase on a network drop.** Discard it, keep
-  it silently, or keep and tag it? Current: keep and tag.
-- **Loudness as a separate waveform only vs. in the text itself.** The ribbon shows
-  the audio; font weight brings it into the words.
-- **[YOU]** Sketches or directions you tried in Figma that didn't make it.
+**[YOU]** Interviewers dig hardest here. Real ones to consider:
+- **Your Flutter prototype with pre-recorded audio.** What it showed, and what it hid.
+- **Loudness only vs. loudness + word plucks.** Loudness alone looked like a VU meter; plucks made it feel like speech.
+- **Separate visuals for Ash and the user vs. one string that changes color.** One string keeps the conversation feeling shared.
+- **Error as red or shaking vs. slack and grey.** Red reads as alarming, which is wrong for a mental-health product.
+- **Exposing every physics variable vs. 17 grouped ones.** What you cut and why.
+- **[YOU]** Any sketches, motion studies or Figma explorations.
 
 ---
 
-## 4. Research and validation: plan for the next 2 days
+## 4. Research and validation (next 2 days)
 
-Even 4–5 short sessions give you real material. Be upfront that this was a
-quick round.
+A short round makes this much stronger. Be upfront that it was quick.
 
-**Setup:** deployed link, Chrome, a quiet-ish room. 10–15 minutes each.
+**With 2–3 designers or engineers (tool usability):**
+1. "Make the string feel calmer when Ash speaks." Watch which parameters they reach for.
+2. "Make sure a whisper still registers." Do they find the noise gate?
+3. Show the error cases. Ask: "Is it clear what happened, and what the user would see?"
 
-**Script:**
-1. "Talk for a minute about your plans this weekend." Watch: do they look at the
-   text or at you? Do they notice the rewrites?
-2. Play **Self-correcting transcript**. Ask: "What just happened there? Did that bother you?"
-3. Play **Low confidence**. Ask: "What does the underline mean to you? What would you do about it?"
-4. Play **Network drop**. Ask: "What do you think happened? Do you trust the
-   transcript after this point?"
-5. Toggle "Show words as they're heard" off and on. Ask: "Which do you prefer and why?"
-6. "If you used this for real, what would you use it for?"
+**With 3–4 potential users (does the string communicate?):**
+1. Play Calm reply, Listening, Thinking and Error with no labels. Ask: "What's happening?"
+2. Play User interrupts Ash. Ask: "Whose turn is it now?"
+3. Compare two presets. Ask: "Which feels more like someone listening to you?"
 
-**Capture:** quotes, moments of confusion, and anything you change because of it.
-Keep one or two "before / after" changes. They are the most convincing evidence.
-
-**[YOU]** Findings and what you changed.
+**[YOU]** Findings, quotes, and at least one before/after change.
 
 ---
 
 ## 5. Where it landed
 
-**[YOU]**
-- What's built (live mode + 8 scenarios; demo it).
-- What users told you and what changed.
-- What's unsolved: speaker separation, per-word confidence, storing sessions,
-  mobile (back to Flutter?).
-- What you'd do differently.
+**[YOU]** What's built, what you learned, what's unsolved (streaming, the backend
+key proxy, per-word confidence from speech-to-text, mobile performance in
+Flutter), and what you'd do differently.
 
 ---
 
@@ -177,16 +163,15 @@ Keep one or two "before / after" changes. They are the most convincing evidence.
 
 | Time | Section | Show |
 |---|---|---|
-| 0–3 | Problem and why pre-recorded audio misled you | Old Flutter prototype vs. the live stream |
-| 3–8 | Mapping the complexity | State diagram, edge-case inventory, constraints log |
-| 8–12 | Exploration | 2–3 directions and why each was dropped or kept |
-| 12–16 | Testing and iteration | Quotes + one before/after change |
-| 16–20 | Demo and where it landed | Live mic, then Network drop and Low confidence scenarios; what's next |
+| 0–3 | Context and problem | Ash's string; why tuning was guesswork |
+| 3–8 | Mapping the complexity | Pipeline, state diagram, parameter groups, edge-case table |
+| 8–12 | Exploration | 2–3 directions and why they were dropped or kept |
+| 12–15 | Testing and iteration | Quotes + one before/after |
+| 15–20 | Live demo and where it landed | ElevenLabs line → interrupt → out of credits → tweak a parameter → Copy as JSON |
 
-**Demo tips:** have the inspector visible so the state changes are obvious. Start
-live for 20 seconds, then switch to scenarios. If the live mic misbehaves in the
-interview, that's itself a chance to show the error handling.
+**Demo tips:** set up the key and connect beforehand. Speak once before the interview so
+the line is cached (instant, no credits). If the API misbehaves live, that's
+a chance to show the error handling.
 
-**Be clear about scope:** a solo project. You designed it and built it, and you
-used AI as a coding partner. Say how. Interviewers care more about honest
-scope than impressive scope.
+The Transcript lab (`transcript.html`) is a companion tool covering the
+speech-to-text side (partial words, revisions, confidence). It's useful backup if they ask about the listening side.

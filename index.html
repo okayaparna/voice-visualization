@@ -3,103 +3,140 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Voice Visualizer</title>
-  <meta name="description" content="Real-time voice visualizer: live transcription with partial results, confidence and loudness, plus scripted edge-case scenarios.">
+  <title>Voice Studio</title>
+  <meta name="description" content="Internal tool for tuning the voice string visual against a live voice API, the microphone and scripted edge cases.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="studio.css">
 </head>
 <body>
-  <header class="topbar">
+  <header class="bar">
     <div class="brand">
-      <span class="brand-mark" aria-hidden="true"></span>
-      <h1>Voice Visualizer</h1>
+      <svg width="22" height="14" viewBox="0 0 22 14" aria-hidden="true"><path d="M2 9 C5 2, 8 2, 10 7 S15 12, 20 4" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/></svg>
+      <h1>Voice Studio</h1>
+      <a class="navlink" href="transcript.html">Transcript lab →</a>
     </div>
-    <div class="status" aria-live="polite">
-      <span id="stateChip" class="chip" data-state="idle">Ready</span>
-      <span id="modeLabel" class="mode-label"></span>
+    <div class="api-status" id="apiStatus" data-status="none">
+      <span class="dot"></span><span id="apiStatusText">Voice API not connected</span>
     </div>
-    <div class="controls" id="controls"></div>
   </header>
 
-  <main class="layout">
-    <section class="stage">
-      <div id="banner" class="banner" hidden></div>
-
-      <div class="ribbon-wrap">
-        <canvas id="ribbon" aria-label="Live loudness of the microphone over the last 12 seconds"></canvas>
-        <div class="ribbon-legend">
-          <span><i class="sw sw-speech"></i>Transcribed</span>
-          <span><i class="sw sw-low"></i>Low confidence</span>
-          <span><i class="sw sw-cut"></i>Cut off</span>
-          <span><i class="sw sw-gap"></i>Reconnecting</span>
+  <main class="studio">
+    <section class="stage-col">
+      <div class="stage" id="stage">
+        <canvas id="stringCanvas" aria-label="The voice string, reacting to the current audio"></canvas>
+        <div class="stage-top">
+          <span class="state-pill" id="statePill" data-state="idle">Idle</span>
+          <span class="state-detail" id="stateDetail"></span>
         </div>
+        <div class="caption" id="caption" aria-live="polite"></div>
+        <div class="error-card" id="errorCard" hidden></div>
       </div>
 
-      <div id="hint" class="hint" hidden></div>
+      <div class="meter-row">
+        <div class="meter">
+          <span class="meter-label">Input level</span>
+          <div class="meter-track"><div class="meter-fill raw" id="rawMeter"></div><div class="meter-gate" id="gateMark" title="Noise gate"></div></div>
+        </div>
+        <div class="meter">
+          <span class="meter-label">String energy</span>
+          <div class="meter-track"><div class="meter-fill" id="energyMeter"></div></div>
+        </div>
+        <span class="clip" id="clipBadge" hidden>CLIPPING</span>
+      </div>
 
-      <article id="transcript" class="transcript" aria-live="polite">
-        <p class="empty" id="emptyState">Start listening, or play a scenario to see how the visualizer handles real-world conditions.</p>
-      </article>
+      <div class="states-row">
+        <span class="row-label">Preview state</span>
+        <button class="chip-btn" data-preview="idle">Idle</button>
+        <button class="chip-btn" data-preview="listening">Listening</button>
+        <button class="chip-btn" data-preview="thinking">Thinking</button>
+        <button class="chip-btn" data-preview="speaking">Speaking</button>
+        <button class="chip-btn" data-preview="error">Error</button>
+      </div>
     </section>
 
-    <aside class="panel">
-      <section class="card">
-        <h2>Scenarios</h2>
-        <p class="muted">Scripted sessions that go through the same pipeline as live audio. Use them to demo edge cases reliably.</p>
-        <div class="row">
-          <select id="scenarioSelect" aria-label="Scenario"></select>
-          <button id="playScenario" class="btn">Play</button>
+    <aside class="side">
+      <!-- Sources -->
+      <section class="panel">
+        <div class="tabs" role="tablist">
+          <button class="tab active" data-tab="api" role="tab">Voice API</button>
+          <button class="tab" data-tab="mic" role="tab">Microphone</button>
+          <button class="tab" data-tab="cases" role="tab">Edge cases</button>
         </div>
-        <p id="scenarioDesc" class="muted small"></p>
+
+        <div class="tab-body" data-body="api">
+          <label class="field">
+            <span>ElevenLabs API key</span>
+            <div class="row">
+              <input type="password" id="apiKey" placeholder="xi-…" autocomplete="off" spellcheck="false">
+              <button class="btn" id="connectBtn">Connect</button>
+            </div>
+            <small class="muted">Kept in this browser tab only. Never saved to the repo.</small>
+          </label>
+          <div class="grid2">
+            <label class="field"><span>Voice</span><select id="voiceSelect"></select></label>
+            <label class="field"><span>Model</span>
+              <select id="modelSelect">
+                <option value="eleven_flash_v2_5">Flash v2.5 (lowest latency)</option>
+                <option value="eleven_turbo_v2_5">Turbo v2.5</option>
+                <option value="eleven_multilingual_v2">Multilingual v2 (highest quality)</option>
+              </select>
+            </label>
+          </div>
+          <label class="field">
+            <span>What Ash says</span>
+            <textarea id="ttsText" rows="3">Hey, I'm here. Take your time. There's no rush, and nothing you say has to be perfect.</textarea>
+          </label>
+          <div class="sliders" id="voiceSliders"></div>
+          <div class="row">
+            <button class="btn primary" id="speakBtn">Speak</button>
+            <button class="btn" id="stopBtn">Stop</button>
+          </div>
+        </div>
+
+        <div class="tab-body" data-body="mic" hidden>
+          <p class="muted">The string reacts to your voice. If the browser supports speech recognition, each recognized word also plucks the string.</p>
+          <div class="row">
+            <button class="btn primary" id="micBtn">Start mic</button>
+          </div>
+          <p class="muted small" id="micNote"></p>
+        </div>
+
+        <div class="tab-body" data-body="cases" hidden>
+          <p class="muted">Scripted signals and API failures that run through the same pipeline as real audio.</p>
+          <div class="case-list" id="caseList"></div>
+        </div>
       </section>
 
-      <section class="card">
-        <h2>Settings</h2>
-        <label class="field">
-          <span>Language</span>
-          <select id="langSelect">
-            <option value="en-US">English (US)</option>
-            <option value="en-GB">English (UK)</option>
-            <option value="en-IN">English (India)</option>
-            <option value="hi-IN">Hindi</option>
-            <option value="es-ES">Spanish</option>
-            <option value="fr-FR">French</option>
-            <option value="de-DE">German</option>
-          </select>
-        </label>
-        <label class="toggle"><input type="checkbox" id="optPartial" checked><span>Show words as they're heard</span></label>
-        <label class="toggle"><input type="checkbox" id="optConfidence" checked><span>Mark low-confidence phrases</span></label>
-        <label class="field slider" id="thresholdField">
-          <span>Low-confidence below <b id="thresholdValue">75%</b></span>
-          <input type="range" id="optThreshold" min="50" max="95" step="5" value="75">
-        </label>
-        <label class="toggle"><input type="checkbox" id="optLoudness" checked><span>Show loudness in the text</span></label>
-        <label class="toggle"><input type="checkbox" id="optInspector" checked><span>Show system inspector</span></label>
+      <!-- String parameters -->
+      <section class="panel">
+        <div class="panel-head">
+          <h2>String</h2>
+          <select id="lookSelect" aria-label="Preset"></select>
+        </div>
+        <div id="paramGroups"></div>
+        <div class="row">
+          <button class="btn small" id="savePreset">Save preset</button>
+          <button class="btn small" id="copyParams">Copy as JSON</button>
+          <button class="btn small ghost" id="resetParams">Reset</button>
+        </div>
       </section>
 
-      <section class="card inspector" id="inspector">
-        <h2>System inspector</h2>
+      <!-- Inspector -->
+      <section class="panel">
+        <h2>Inspector</h2>
         <dl class="stats">
-          <div><dt>Duration</dt><dd id="statDuration">0:00</dd></div>
-          <div><dt>Phrases</dt><dd id="statSegments">0</dd></div>
-          <div><dt>Revisions</dt><dd id="statRevisions">0</dd></div>
-          <div><dt>Low confidence</dt><dd id="statLow">0</dd></div>
-          <div><dt>Cut off</dt><dd id="statCut">0</dd></div>
+          <div><dt>Time to audio</dt><dd id="mTTA">–</dd></div>
+          <div><dt>Audio length</dt><dd id="mLen">–</dd></div>
+          <div><dt>Requests</dt><dd id="mReq">0</dd></div>
+          <div><dt>Cache hits</dt><dd id="mCache">0</dd></div>
         </dl>
-        <h3>State transitions</h3>
-        <ol id="log" class="log"></ol>
-        <div class="row">
-          <button id="exportTxt" class="btn ghost small">Export .txt</button>
-          <button id="exportJson" class="btn ghost small">Export .json</button>
-          <button id="clearBtn" class="btn ghost small">Clear</button>
-        </div>
+        <ol class="log" id="log"></ol>
       </section>
     </aside>
   </main>
 
-  <script src="scenarios.js"></script>
-  <script src="app.js"></script>
+  <script src="studio.js"></script>
 </body>
 </html>

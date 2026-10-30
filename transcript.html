@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Transcript Lab</title>
+  <meta name="description" content="Real-time voice visualizer: live transcription with partial results, confidence and loudness, plus scripted edge-case scenarios.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <h1>Transcript lab</h1>
+      <a class="navlink" href="index.html">← Voice studio</a>
+    </div>
+    <div class="status" aria-live="polite">
+      <span id="stateChip" class="chip" data-state="idle">Ready</span>
+      <span id="modeLabel" class="mode-label"></span>
+    </div>
+    <div class="controls" id="controls"></div>
+  </header>
+
+  <main class="layout">
+    <section class="stage">
+      <div id="banner" class="banner" hidden></div>
+
+      <div class="ribbon-wrap">
+        <canvas id="ribbon" aria-label="Live loudness of the microphone over the last 12 seconds"></canvas>
+        <div class="ribbon-legend">
+          <span><i class="sw sw-speech"></i>Transcribed</span>
+          <span><i class="sw sw-low"></i>Low confidence</span>
+          <span><i class="sw sw-cut"></i>Cut off</span>
+          <span><i class="sw sw-gap"></i>Reconnecting</span>
+        </div>
+      </div>
+
+      <div id="hint" class="hint" hidden></div>
+
+      <article id="transcript" class="transcript" aria-live="polite">
+        <p class="empty" id="emptyState">Start listening, or play a scenario to see how the visualizer handles real-world conditions.</p>
+      </article>
+    </section>
+
+    <aside class="panel">
+      <section class="card">
+        <h2>Scenarios</h2>
+        <p class="muted">Scripted sessions that go through the same pipeline as live audio. Use them to demo edge cases reliably.</p>
+        <div class="row">
+          <select id="scenarioSelect" aria-label="Scenario"></select>
+          <button id="playScenario" class="btn">Play</button>
+        </div>
+        <p id="scenarioDesc" class="muted small"></p>
+      </section>
+
+      <section class="card">
+        <h2>Settings</h2>
+        <label class="field">
+          <span>Language</span>
+          <select id="langSelect">
+            <option value="en-US">English (US)</option>
+            <option value="en-GB">English (UK)</option>
+            <option value="en-IN">English (India)</option>
+            <option value="hi-IN">Hindi</option>
+            <option value="es-ES">Spanish</option>
+            <option value="fr-FR">French</option>
+            <option value="de-DE">German</option>
+          </select>
+        </label>
+        <label class="toggle"><input type="checkbox" id="optPartial" checked><span>Show words as they're heard</span></label>
+        <label class="toggle"><input type="checkbox" id="optConfidence" checked><span>Mark low-confidence phrases</span></label>
+        <label class="field slider" id="thresholdField">
+          <span>Low-confidence below <b id="thresholdValue">75%</b></span>
+          <input type="range" id="optThreshold" min="50" max="95" step="5" value="75">
+        </label>
+        <label class="toggle"><input type="checkbox" id="optLoudness" checked><span>Show loudness in the text</span></label>
+        <label class="toggle"><input type="checkbox" id="optInspector" checked><span>Show system inspector</span></label>
+      </section>
+
+      <section class="card inspector" id="inspector">
+        <h2>System inspector</h2>
+        <dl class="stats">
+          <div><dt>Duration</dt><dd id="statDuration">0:00</dd></div>
+          <div><dt>Phrases</dt><dd id="statSegments">0</dd></div>
+          <div><dt>Revisions</dt><dd id="statRevisions">0</dd></div>
+          <div><dt>Low confidence</dt><dd id="statLow">0</dd></div>
+          <div><dt>Cut off</dt><dd id="statCut">0</dd></div>
+        </dl>
+        <h3>State transitions</h3>
+        <ol id="log" class="log"></ol>
+        <div class="row">
+          <button id="exportTxt" class="btn ghost small">Export .txt</button>
+          <button id="exportJson" class="btn ghost small">Export .json</button>
+          <button id="clearBtn" class="btn ghost small">Clear</button>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <script src="scenarios.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
